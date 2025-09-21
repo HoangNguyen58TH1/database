@@ -99,23 +99,60 @@ Execution Time: 0.056 ms
 - Planning Time: 0.080 ms --> time to Planner analyze query --> select 'EXECUTE PLAN'
 - Execution Time: 0.056 ms --> total time execute query (include scan index, fetch row)
 
+a. INDEX:
+# Planning Time: 0.100 ms, Execution Time: 0.078 ms
+# Planning Time: 0.156 ms, Execution Time: 0.096 ms
+# Planning Time: 0.210 ms, Execution Time: 0.093 ms
+==> exe/plan (50-70/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.6 lần
+b. NO INDEX:
+# Planning Time: 0.063 ms, Execution Time: 0.128 ms
+# Planning Time: 0.174 ms, Execution Time: 0.306 ms
+# Planning Time: 0.174 ms, Execution Time: 0.299 ms
+==> exe/plan (150-200/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 2 lần
 
-NO INDEX: --> exe/plan (150-200/100%) --> time exe > hơn estimate
-Planning Time: 0.063 ms
-Execution Time: 0.128 ms
-Planning Time: 0.174 ms
-Execution Time: 0.306 ms
-Planning Time: 0.179 ms
-Execution Time: 0.285 ms
-Planning Time: 0.136 ms
-Execution Time: 0.154 ms
-Planning Time: 0.174 ms
-Execution Time: 0.299 ms
 
-INDEX: --> exe/plan (50-70/100%) --> time exe < hơn estimate
-Planning Time: 0.100 ms
-Execution Time: 0.078 ms
-Planning Time: 0.156 ms
-Execution Time: 0.096 ms
-Planning Time: 0.210 ms
-Execution Time: 0.093 ms
+# 21/09/2025 --------------------------------------------------------------------------------
+# 1. Destroy all data
+User.destroy_all
+
+# 2. INSERT 10K RECORDS:
+now = Time.current
+rows = Array.new(10000) do |i|
+  {
+    email1: "email_1_#{i+1}@example.com", email2: "email_2_#{i+1}@example.com",
+    name1: "User 1 #{i+1}", name2: "User 2 #{i+1}",
+    age1: 18, age2: 19, sex1: true, sex2: false, created_at: now, updated_at: now
+  }
+end
+User.insert_all(rows)
+
+# 3. Test filter
+a. Has index:
+User.where(email1: 'email_1_9999@example.com').explain(:analyze, :buffers)
+==> exe/plan (60-80/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.7 lần
+b. No index:
+User.where(email2: 'email_2_9999@example.com').explain(:analyze, :buffers)
+==> exe/plan (1500-2200/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 20 lần
+
+
+# Next time --------------------------------------------------------------------------------
+# # 1. User.destroy_all
+# # 2. INSERT 100K RECORDS:
+# now = Time.current
+# rows = Array.new(100000) do |i|
+#   {
+#     email1: "email_1_#{i+1}@example.com", email2: "email_2_#{i+1}@example.com",
+#     name1: "User 1 #{i+1}", name2: "User 2 #{i+1}",
+#     age1: 18, age2: 19, sex1: true, sex2: false, created_at: now, updated_at: now
+#   }
+# end
+# User.insert_all(rows)
+
+# # 3. Test filter
+# a. Has index:
+# User.where(email1: 'email_1_99999@example.com').explain(:analyze, :buffers)
+# # ==> exe/plan (60-80/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.7 lần
+
+# b. No index:
+# User.where(email2: 'email_2_99999@example.com').explain(:analyze, :buffers)
+# # ==> exe/plan (1500-2200/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 20 lần
