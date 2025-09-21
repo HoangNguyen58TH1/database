@@ -58,3 +58,6 @@ group :test do
   gem "capybara"
   gem "selenium-webdriver"
 end
+
+gem "pg", "~> 1.5"
+gem "dotenv-rails"
