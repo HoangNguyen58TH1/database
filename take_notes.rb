@@ -232,3 +232,64 @@ Calculate byte size of table User: 148*1000000/1024/1024/1024.to_f = 141 MB = 0.
 Calculate byte size data + index of table User: 141 MB + 197 MB = 339 MB = 0.33 GB
 Vậy thì 0.13 GB - 0.33 GB = 0.97 GB là storage cái gì?
 ==> Overhead hệ thống + WAL log (Postgres ghi mọi thay đổi vào WAL trước → thường lớn hơn data gốc)
+
+# 28/09/2025 --------------------------------------------------------------------------------
+# CHECK TABLE SIZE OF column email1:
+result = ActiveRecord::Base.connection.execute("
+  SELECT 
+    SUM(pg_column_size(email1)) AS total_bytes,
+    AVG(pg_column_size(email1)) AS avg_bytes
+  FROM users
+").first
+puts "Average size per row: #{result['avg_bytes']} bytes"
+puts "Total size of email1: #{result['total_bytes']} bytes"
+# ==>
+# Average size per row: 26.888894 bytes
+# Total size of email1: 26888894 bytes = 26888894/1024/1024.to_f = 25.6 MB = 0.024 GB
+
+
+# CHECK TABLE SIZE OF ALL COLUMNS:
+result = ActiveRecord::Base.connection.execute("
+  SELECT 
+    SUM(pg_column_size(email1)) AS email1_total,
+    SUM(pg_column_size(email2)) AS email2_total,
+    SUM(pg_column_size(name1))  AS name1_total,
+    SUM(pg_column_size(name2))  AS name2_total,
+    SUM(pg_column_size(sex1))   AS sex1_total,
+    SUM(pg_column_size(sex2))   AS sex2_total,
+    SUM(pg_column_size(age1))   AS age1_total,
+    SUM(pg_column_size(age2))   AS age2_total
+  FROM users
+").first
+result.each do |col, size|
+  puts "#{col}: #{size/1024/1024.to_f} MB"
+end
+# ==> {
+#   email1_total: 25.6 MB
+#   email2_total: 25.6 MB
+#   name1_total: 13.2 MB
+#   name2_total: 13.2 MB
+#   sex1_total: 0.9 MB
+#   sex2_total: 0.9 MB
+#   age1_total: 3.8 MB
+#   age2_total: 3.8 MB
+# }
+
+
+# CHECK INDEX SIZE OF ALL COLUMNS:
+result = ActiveRecord::Base.connection.execute("
+  SELECT 
+      indexrelid::regclass AS index_name,
+      pg_size_pretty(pg_relation_size(indexrelid)) AS index_size
+  FROM pg_index
+  WHERE indrelid = 'users'::regclass;
+")
+result.each do |row|
+  puts "#{row['index_name']} => #{row['index_size']}"
+end
+# ==> 
+# users_pkey => 21 MB
+# index_users_on_email1 => 84 MB
+# index_users_on_name1 => 51 MB
+# index_users_on_sex1 => 20 MB
+# index_users_on_age1 => 20 MB
