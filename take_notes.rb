@@ -1,3 +1,25 @@
+# SHOW ALL COLUMNS OF MODEL: User.columns_hash
+{
+  "id"=>
+  #<ActiveRecord::ConnectionAdapters::PostgreSQL::Column:0x00000001152bf050
+   @collation=nil,
+   @comment=nil,
+   @default=nil,
+   @default_function="nextval('users_id_seq'::regclass)",
+   @generated="",
+   @identity=nil,
+   @name="id",
+   @null=false,
+   @serial=true,
+   @sql_type_metadata=#<ActiveRecord::ConnectionAdapters::SqlTypeMetadata:0x00000001152b4330 @limit=8, @precision=nil, @scale=nil, @sql_type="bigint", @type=:integer>>,
+ "email1"=>
+ "name1"=>
+ "sex1"=>
+ "age1"=>
+ "created_at"=>
+ "updated_at"=>
+}
+
 # Insert 1 record
 # User.create(email1: 'email1', email2: 'email2', name1: 'name1', name2: 'name2', sex1: true, sex2: false, age1: 18, age2: 19)
 # arr = Array.new(1000) do |i|
@@ -135,24 +157,78 @@ User.where(email2: 'email_2_9999@example.com').explain(:analyze, :buffers)
 ==> exe/plan (1500-2200/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 20 lần
 
 
-# Next time --------------------------------------------------------------------------------
-# # 1. User.destroy_all
-# # 2. INSERT 100K RECORDS:
-# now = Time.current
-# rows = Array.new(100000) do |i|
-#   {
-#     email1: "email_1_#{i+1}@example.com", email2: "email_2_#{i+1}@example.com",
-#     name1: "User 1 #{i+1}", name2: "User 2 #{i+1}",
-#     age1: 18, age2: 19, sex1: true, sex2: false, created_at: now, updated_at: now
-#   }
-# end
-# User.insert_all(rows)
+# 26/09/2025 --------------------------------------------------------------------------------
+# 2. INSERT 100K RECORDS:
+now = Time.current
+rows = Array.new(90000) do |i|
+  {
+    email1: "email_1_#{i+10000}@example.com", email2: "email_2_#{i+10000}@example.com",
+    name1: "User 1 #{i+10000}", name2: "User 2 #{i+10000}",
+    age1: 18, age2: 19, sex1: true, sex2: false, created_at: now, updated_at: now
+  }
+end
+User.insert_all(rows)
 
-# # 3. Test filter
-# a. Has index:
-# User.where(email1: 'email_1_99999@example.com').explain(:analyze, :buffers)
-# # ==> exe/plan (60-80/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.7 lần
+# 3. Test filter
+a. Has index:
+User.where(email1: 'email_1_99999@example.com').explain(:analyze, :buffers)
+==> exe/plan (75-100/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.8 lần
 
-# b. No index:
-# User.where(email2: 'email_2_99999@example.com').explain(:analyze, :buffers)
-# # ==> exe/plan (1500-2200/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 20 lần
+b. No index:
+User.where(email2: 'email_2_99999@example.com').explain(:analyze, :buffers)
+==> exe/plan (10000-15549/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 125 lần
+
+
+# 27/09/2025 --------------------------------------------------------------------------------
+# 2. INSERT 1M RECORDS:
+now = Time.current
+rows = Array.new(900000) do |i|
+  {
+    email1: "email_1_#{i+100000}@example.com", email2: "email_2_#{i+100000}@example.com",
+    name1: "User 1 #{i+100000}", name2: "User 2 #{i+100000}",
+    age1: 18, age2: 19, sex1: true, sex2: false, created_at: now, updated_at: now
+  }
+end
+User.insert_all(rows)
+
+# 3. Test filter
+a. Has index:
+User.where(email1: 'email_1_999999@example.com').explain(:analyze, :buffers)
+==> exe/plan (60-90/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.7 lần
+
+b. No index:
+User.where(email2: 'email_2_999999@example.com').explain(:analyze, :buffers)
+==> exe/plan (64000/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 640 lần
+
+
+# CALCULATE BYTE SIZE: ----------------------------------------------------------------------
+# CALCULATE BYTE SIZE OF 1 ROW:
+size = ActiveRecord::Base.connection.execute("
+  SELECT pg_column_size(t) 
+  FROM users t 
+  WHERE id = 999999
+").first["pg_column_size"]
+==> 120 / 144 bytes
+
+# CALCULATE BYTE SIZE AVERAGE OF ALL ROWS IN A TABLE:
+avg_size = ActiveRecord::Base.connection.execute("
+  SELECT pg_relation_size('users') / COUNT(*) AS avg_row_bytes
+  FROM users
+").first["avg_row_bytes"]
+==> 148 bytes
+
+
+# CALCULATE BYTE SIZE DATA + INDEX OF TABLE USER:
+sizes = ActiveRecord::Base.connection.execute("
+  SELECT 
+    pg_size_pretty(pg_relation_size('users')) AS table_data,
+    pg_size_pretty(pg_indexes_size('users')) AS table_indexes,
+    pg_size_pretty(pg_total_relation_size('users')) AS total_size
+").first
+=> {"table_data"=>"141 MB", "table_indexes"=>"197 MB", "total_size"=>"339 MB"}
+
+Check dung lượng của Disk: tăng từ 424.06 GB --> 425.09 GB (it mean created 1M records ~ 1.3 GB)
+Calculate byte size of table User: 148*1000000/1024/1024/1024.to_f = 141 MB = 0.13 GB
+Calculate byte size data + index of table User: 141 MB + 197 MB = 339 MB = 0.33 GB
+Vậy thì 0.13 GB - 0.33 GB = 0.97 GB là storage cái gì?
+==> Overhead hệ thống + WAL log (Postgres ghi mọi thay đổi vào WAL trước → thường lớn hơn data gốc)
