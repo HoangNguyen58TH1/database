@@ -200,6 +200,45 @@ b. No index:
 User.where(email2: 'email_2_999999@example.com').explain(:analyze, :buffers)
 ==> exe/plan (64000/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 640 lần
 
+# 30/09/2025 --------------------------------------------------------------------------------
+2. INSERT 10M RECORDS:
+# SOLUTION 1:
+# now = Time.current
+# rows = Array.new(9000000) do |i|
+#   {
+#     email1: "email_1_#{i+1000000}@example.com", email2: "email_2_#{i+1000000}@example.com",
+#     name1: "User 1 #{i+1000000}", name2: "User 2 #{i+1000000}",
+#     age1: 20, age2: 21, sex1: false, sex2: true, created_at: now, updated_at: now
+#   }
+# end
+# User.insert_all(rows)
+==> ERROR OUT OF MEMORY
+
+# SOLUTION 2: SEPARATE BY BATCH 100K ROWS
+now = Time.current
+batch_size = 100_000
+(1..10_000_000).step(batch_size) do |offset|
+  rows = Array.new(batch_size) do |i|
+    idx = offset + i
+    {
+      email1: "email_1_#{idx}@example.com", email2: "email_2_#{idx}@example.com",
+      name1: "User 1 #{idx}", name2: "User 2 #{idx}",
+      age1: 20, age2: 21, sex1: false, sex2: true, created_at: now, updated_at: now
+    }
+  end
+  User.insert_all(rows)
+  puts "Insert up to: #{offset + batch_size}"
+end
+==> CREATED 10M SUCCESSFULLY
+
+# 3. Test filter
+a. Has index:
+User.where(email1: 'email_1_10000000@example.com').explain(:analyze, :buffers)
+==> exe/plan (80/100'%') --> TIME EXE < TIME ESTIMATE --> exe/est gấp 0.8 lần
+b. No index:
+User.where(email2: 'email_2_10000000@example.com').explain(:analyze, :buffers)
+==> exe/plan (550.000/100'%') --> TIME EXE > TIME ESTIMATE --> exe/est gấp 5500 lần
+
 
 # CALCULATE BYTE SIZE: ----------------------------------------------------------------------
 # CALCULATE BYTE SIZE OF 1 ROW:
@@ -293,3 +332,70 @@ end
 # index_users_on_name1 => 51 MB
 # index_users_on_sex1 => 20 MB
 # index_users_on_age1 => 20 MB
+
+# 05/10/2025 --------------------------------------------------------------------------------
+# TEST BY BENCHMARK:
+# 1. TEST 1 TIMES
+Benchmark.bm do |x|
+  x.report("index (email1):") { User.find_by(email1: "email_1_5000002@example.com") }
+  x.report("no index (email2):") { User.find_by(email2: "email_2_5000002@example.com") }
+end
+# [ <Benchmark::Tms:0x00000001101e17f0 @label="index (email1):", @real=0.0024870000779628754,
+#   <Benchmark::Tms:0x00000001101dbb98 @label="no index (email2):", @real=0.3664009999483824]
+==> index/no index = 150 times
+
+# 2. BENCHMARK REPORT 100 TIMES
+N = 100
+email_indexed = "email_1_5000000@example.com"
+email_no_index = "email_2_5000000@example.com"
+Benchmark.bm do |x|
+  x.report("index (email1):") do
+    N.times { User.find_by(email1: email_indexed) }
+  end
+  x.report("no index (email2):") do
+    N.times { User.find_by(email2: email_no_index) }
+  end
+end
+#                       user     system      total        real
+# index (email1):     0.037390   0.007405   0.044795 (  0.088603)
+# no index (email2):  0.177192   0.023007   0.200199 ( 37.170615)
+==> no index/index = 37.170615/0.088603 ~ 410 times with dataset = 10M records
+
+# 06/10/2025 --------------------------------------------------------------------------------
+BENCHMARK REALTIME 3 DATA TYPES:
+1. email (string)
+N = 100
+email = "email_1_5000000@example.com"
+email_index = Benchmark.realtime { N.times { User.find_by(email1: email) } }
+email_no_index = Benchmark.realtime { N.times { User.find_by(email2: email) } }
+puts "email1 (indexed): #{(email_index / N * 1000).round(3)} ms/query"
+puts "email2 (no index): #{(email_no_index / N * 1000).round(3)} ms/query"
+puts "No index / Index = #{(email_no_index/email_index).to_i} times"
+puts "No index / Index = #{(email_no_index/email_index).round(2)} times"
+# email1 (indexed): 0.543 ms/query
+# email2 (no index): 323.054 ms/query
+# No index / Index = 594 times
+
+2. age (integer)
+age = 25
+age_index = Benchmark.realtime { N.times { User.find_by(age1: age) } }
+age_no_index = Benchmark.realtime { N.times { User.find_by(age2: age) } }
+puts "age1 (indexed): #{(age_index / N * 1000).round(3)} ms/query"
+puts "age2 (no index): #{(age_no_index / N * 1000).round(3)} ms/query"
+puts "No index / Index = #{(age_no_index/age_index).to_i} times"
+puts "No index / Index = #{(age_no_index/age_index).round(2)} times"
+# age1 (indexed): 0.422 ms/query
+# age2 (no index): 691.708 ms/query
+# No index / Index = 1640 times
+
+3. sex (boolean)
+sex = true
+sex_index = Benchmark.realtime { N.times { User.find_by(sex1: sex) } }
+sex_no_index = Benchmark.realtime { N.times { User.find_by(sex2: sex) } }
+puts "sex1 (indexed): #{(sex_index / N * 1000).round(3)} ms/query"
+puts "sex2 (no index): #{(sex_no_index / N * 1000).round(3)} ms/query"
+puts "No index / Index = #{(sex_no_index/sex_index).to_i} times"
+puts "No index / Index = #{(sex_no_index/sex_index).round(2)} times"
+# sex1 (indexed): 0.487 ms/query
+# sex2 (no index): 0.226 ms/query
+# No index / Index = 0.46 times
